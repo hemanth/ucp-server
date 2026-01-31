@@ -1,11 +1,11 @@
 {
-  "name": "ucp-server",
+  "name": "ucpify",
   "version": "1.0.0",
   "description": "Generate UCP-compliant servers for merchants from a simple schema",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "ucp-server": "dist/cli.js"
+    "ucpify": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc",

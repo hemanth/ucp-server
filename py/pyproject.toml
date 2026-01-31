@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ucp-server-py"
+name = "ucpify"
 version = "1.0.0"
 description = "Generate UCP-compliant servers for merchants from a simple schema"
 readme = "README.md"
@@ -31,11 +31,11 @@ dependencies = [
 ]
 
 [project.scripts]
-ucp-server = "ucp_server.cli:main"
+ucpify = "ucpify.cli:main"
 
 [project.urls]
 Homepage = "https://ucp.dev"
-Repository = "https://github.com/user/ucp-server"
+Repository = "https://github.com/hemanth/ucpify"
 
 [tool.setuptools.packages.find]
 where = ["src"]

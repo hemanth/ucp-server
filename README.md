@@ -1,12 +1,12 @@
-# ucp-server
+# ucpify
 
 Generate UCP-compliant commerce servers from a simple JSON config.
 
 ## Install
 
 ```bash
-npm install ucp-server        # Node.js
-pip install ucp-server-py     # Python
+npm install ucpify        # Node.js
+pip install ucpify-py     # Python
 ```
 
 ## What is UCP?
@@ -17,12 +17,12 @@ The [Universal Commerce Protocol](https://ucp.dev) is an open standard for agent
 
 ```bash
 # Node.js
-npx ucp-server init
-npx ucp-server serve merchant-config.json
+npx ucpify init
+npx ucpify serve merchant-config.json
 
 # Python
-ucp-server init
-ucp-server serve merchant-config.json
+ucpify init
+ucpify serve merchant-config.json
 ```
 
 ## Config

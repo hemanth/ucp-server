@@ -1,4 +1,4 @@
-# ucp-server (Python)
+# ucpify (Python)
 
 Generate UCP-compliant (Universal Commerce Protocol) servers for merchants from a simple schema.
 
@@ -12,25 +12,25 @@ pip install -e .
 
 ```bash
 # Initialize a sample merchant config
-ucp-server init
+ucpify init
 
 # Edit merchant-config.json to add your products, shipping, payments
 
 # Start the UCP server
-ucp-server serve merchant-config.json
+ucpify serve merchant-config.json
 ```
 
 ## CLI Commands
 
 ```bash
 # Create sample configuration
-ucp-server init --output my-store.json
+ucpify init --output my-store.json
 
 # Validate configuration
-ucp-server validate my-store.json
+ucpify validate my-store.json
 
 # Start server
-ucp-server serve my-store.json --port 8080
+ucpify serve my-store.json --port 8080
 ```
 
 ## Programmatic Usage

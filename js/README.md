@@ -1,4 +1,4 @@
-# ucp-server
+# ucpify
 
 Generate UCP-compliant (Universal Commerce Protocol) servers for merchants from a simple schema.
 
@@ -124,19 +124,19 @@ curl -X POST http://localhost:3000/ucp/v1/checkout-sessions/chk_xxx/complete
 
 ```bash
 # Create sample configuration
-ucp-server init --output my-store.json
+ucpify init --output my-store.json
 
 # Validate configuration
-ucp-server validate my-store.json
+ucpify validate my-store.json
 
 # Start server
-ucp-server serve my-store.json --port 8080
+ucpify serve my-store.json --port 8080
 ```
 
 ## Programmatic Usage
 
 ```typescript
-import { createExpressApp, MerchantConfigSchema } from 'ucp-server';
+import { createExpressApp, MerchantConfigSchema } from 'ucpify';
 
 const config = MerchantConfigSchema.parse({
   name: 'My Store',
@@ -162,7 +162,7 @@ MIT
 
 ## Identity Linking (Bring Your Own OAuth)
 
-UCP uses OAuth 2.0 for identity linking between agents and merchants. ucp-server does **not** include a built-in OAuth server—instead, integrate your existing OAuth provider.
+UCP uses OAuth 2.0 for identity linking between agents and merchants. ucpify does **not** include a built-in OAuth server—instead, integrate your existing OAuth provider.
 
 ### Required OAuth Endpoints
 

@@ -4,8 +4,8 @@ import sqlite3
 from pathlib import Path
 from typing import Optional
 
-from ucp_server.config import config
-from ucp_server.logger import logger
+from ucpify.config import config
+from ucpify.logger import logger
 
 
 # Ensure data directory exists

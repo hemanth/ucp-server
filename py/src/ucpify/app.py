@@ -2,13 +2,13 @@
 
 from datetime import datetime
 from flask import Flask, request, jsonify, g
-from ucp_server.schema import MerchantConfig, UCP_VERSION
-from ucp_server.server import UCPServer
-from ucp_server.server_db import UCPServerDB
-from ucp_server.db import is_db_healthy, get_db
-from ucp_server.logger import logger
-from ucp_server.stripe_payment import construct_webhook_event
-from ucp_server.paypal_payment import capture_paypal_order, get_paypal_order
+from ucpify.schema import MerchantConfig, UCP_VERSION
+from ucpify.server import UCPServer
+from ucpify.server_db import UCPServerDB
+from ucpify.db import is_db_healthy, get_db
+from ucpify.logger import logger
+from ucpify.stripe_payment import construct_webhook_event
+from ucpify.paypal_payment import capture_paypal_order, get_paypal_order
 
 
 def create_flask_app(config: MerchantConfig, use_db: bool = True) -> Flask:
@@ -128,20 +128,20 @@ def create_flask_app(config: MerchantConfig, use_db: bool = True) -> Flask:
 
     @app.route("/.well-known/ucp", methods=["GET"])
     def get_ucp_profile():
-        return jsonify(ucp_server.get_profile())
+        return jsonify(ucpify.get_profile())
 
     @app.route("/ucp/v1/checkout-sessions", methods=["POST"])
     def create_checkout():
         try:
             data = request.get_json()
-            session = ucp_server.create_checkout(data)
+            session = ucpify.create_checkout(data)
             return jsonify(session), 201
         except Exception as e:
             return jsonify({"error": "Invalid request", "details": str(e)}), 400
 
     @app.route("/ucp/v1/checkout-sessions/<checkout_id>", methods=["GET"])
     def get_checkout(checkout_id: str):
-        session = ucp_server.get_checkout(checkout_id)
+        session = ucpify.get_checkout(checkout_id)
         if not session:
             return jsonify({"error": "Checkout session not found"}), 404
         return jsonify(session)
@@ -150,7 +150,7 @@ def create_flask_app(config: MerchantConfig, use_db: bool = True) -> Flask:
     def update_checkout(checkout_id: str):
         try:
             data = request.get_json()
-            session = ucp_server.update_checkout(checkout_id, data)
+            session = ucpify.update_checkout(checkout_id, data)
             if not session:
                 return jsonify({"error": "Checkout session not found"}), 404
             return jsonify(session)
@@ -159,25 +159,25 @@ def create_flask_app(config: MerchantConfig, use_db: bool = True) -> Flask:
 
     @app.route("/ucp/v1/checkout-sessions/<checkout_id>/complete", methods=["POST"])
     def complete_checkout(checkout_id: str):
-        result = ucp_server.complete_checkout(checkout_id)
+        result = ucpify.complete_checkout(checkout_id)
         if "error" in result:
             return jsonify(result), 400
         return jsonify(result), 201
 
     @app.route("/ucp/v1/checkout-sessions/<checkout_id>/cancel", methods=["POST"])
     def cancel_checkout(checkout_id: str):
-        session = ucp_server.cancel_checkout(checkout_id)
+        session = ucpify.cancel_checkout(checkout_id)
         if not session:
             return jsonify({"error": "Checkout session not found"}), 404
         return jsonify(session)
 
     @app.route("/ucp/v1/orders", methods=["GET"])
     def list_orders():
-        return jsonify(ucp_server.list_orders())
+        return jsonify(ucpify.list_orders())
 
     @app.route("/ucp/v1/orders/<order_id>", methods=["GET"])
     def get_order(order_id: str):
-        order = ucp_server.get_order(order_id)
+        order = ucpify.get_order(order_id)
         if not order:
             return jsonify({"error": "Order not found"}), 404
         return jsonify(order)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI for ucp-server - Generate and run UCP-compliant servers."""
+"""CLI for ucpify - Generate and run UCP-compliant servers."""
 
 import json
 import sys
@@ -8,8 +8,8 @@ from pathlib import Path
 import click
 from pydantic import ValidationError
 
-from ucp_server.schema import MerchantConfig
-from ucp_server.app import create_flask_app
+from ucpify.schema import MerchantConfig
+from ucpify.app import create_flask_app
 
 
 SAMPLE_CONFIG = {
@@ -77,7 +77,7 @@ SAMPLE_CONFIG = {
 @click.group()
 @click.version_option(version="1.0.0")
 def main():
-    """ucp-server - Generate and run UCP-compliant servers for merchants."""
+    """ucpify - Generate and run UCP-compliant servers for merchants."""
     pass
 
 
@@ -89,7 +89,7 @@ def init(output: str):
     path.write_text(json.dumps(SAMPLE_CONFIG, indent=2))
     click.echo(f"✅ Created sample config at: {output}")
     click.echo("\n📝 Edit this file to configure your products, shipping, and payment handlers.")
-    click.echo(f"\n🚀 Run: ucp-server serve {output}")
+    click.echo(f"\n🚀 Run: ucpify serve {output}")
 
 
 @main.command()

@@ -5,11 +5,11 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Optional, Any
 
-from ucp_server.db import get_db
-from ucp_server.logger import logger
-from ucp_server.schema import MerchantConfig, UCP_VERSION
-from ucp_server.stripe_payment import create_payment_intent, is_stripe_configured
-from ucp_server.paypal_payment import create_paypal_order, is_paypal_configured
+from ucpify.db import get_db
+from ucpify.logger import logger
+from ucpify.schema import MerchantConfig, UCP_VERSION
+from ucpify.stripe_payment import create_payment_intent, is_stripe_configured
+from ucpify.paypal_payment import create_paypal_order, is_paypal_configured
 
 
 class UCPServerDB:

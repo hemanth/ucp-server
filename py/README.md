@@ -36,7 +36,7 @@ ucpify serve my-store.json --port 8080
 ## Programmatic Usage
 
 ```python
-from ucp_server import create_flask_app, MerchantConfig, Item, ShippingOption
+from ucpify import create_flask_app, MerchantConfig, Item, ShippingOption
 
 config = MerchantConfig(
     name="My Store",

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Optional, Any
 
-from ucp_server.schema import (
+from ucpify.schema import (
     MerchantConfig,
     Item,
     Buyer,

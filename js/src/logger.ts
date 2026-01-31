@@ -6,7 +6,7 @@ export const logger = pino({
   transport: config.nodeEnv === 'development' 
     ? { target: 'pino-pretty', options: { colorize: true } }
     : undefined,
-  base: { service: 'ucp-server' },
+  base: { service: 'ucpify' },
 });
 
 export type Logger = typeof logger;

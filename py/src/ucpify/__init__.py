@@ -1,13 +1,13 @@
-"""ucp-server - Generate UCP-compliant servers for merchants."""
+"""ucpify - Generate UCP-compliant servers for merchants."""
 
-from ucp_server.schema import (
+from ucpify.schema import (
     MerchantConfig,
     Item,
     ShippingOption,
     PaymentHandler,
 )
-from ucp_server.server import UCPServer
-from ucp_server.app import create_flask_app
+from ucpify.server import UCPServer
+from ucpify.app import create_flask_app
 
 __version__ = "1.0.0"
 __all__ = [

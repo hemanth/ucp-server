@@ -9,7 +9,7 @@ import { createExpressApp } from './express-app';
 const program = new Command();
 
 program
-  .name('ucp-server')
+  .name('ucpify')
   .description('Generate and run a UCP-compliant server for merchants')
   .version('1.0.0');
 

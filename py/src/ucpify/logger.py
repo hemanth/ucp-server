@@ -1,7 +1,7 @@
 """Structured logging with structlog."""
 
 import structlog
-from ucp_server.config import config
+from ucpify.config import config
 
 
 def setup_logging():
@@ -26,4 +26,4 @@ def setup_logging():
 
 
 setup_logging()
-logger = structlog.get_logger("ucp_server")
+logger = structlog.get_logger("ucpify")

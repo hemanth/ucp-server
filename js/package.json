@@ -1,6 +1,5 @@
 {
-  "name": "ucpify",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Generate UCP-compliant servers for merchants from a simple schema",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -49,5 +48,6 @@
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
-  }
+  },
+  "name": "ucpify"
 }

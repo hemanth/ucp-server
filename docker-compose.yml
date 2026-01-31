@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  # JavaScript/Node.js implementation
+  ucp-server-js:
+    build:
+      context: ./js
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./js/data:/app/data
+      - ./config:/app/config:ro
+    environment:
+      - NODE_ENV=production
+      - DATABASE_PATH=/app/data/ucp.db
+      - LOG_LEVEL=info
+    restart: unless-stopped
+
+  # Python/Flask implementation  
+  ucp-server-py:
+    build:
+      context: ./py
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./py/data:/app/data
+      - ./config:/app/config:ro
+    environment:
+      - ENV=production
+      - DATABASE_PATH=/app/data/ucp.db
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
+
+# To run just one implementation:
+#   docker-compose up ucp-server-js
+#   docker-compose up ucp-server-py

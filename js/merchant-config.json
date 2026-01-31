@@ -1,0 +1,64 @@
+{
+  "name": "My Store",
+  "domain": "http://localhost:3000",
+  "currency": "USD",
+  "terms_url": "https://example.com/terms",
+  "privacy_url": "https://example.com/privacy",
+  "tax_rate": 0.08,
+  "port": 3000,
+  "items": [
+    {
+      "id": "item_001",
+      "title": "Classic T-Shirt",
+      "description": "A comfortable cotton t-shirt",
+      "price": 2500,
+      "sku": "TSH-001"
+    },
+    {
+      "id": "item_002",
+      "title": "Premium Hoodie",
+      "description": "Warm and stylish hoodie",
+      "price": 5999,
+      "sku": "HOO-001"
+    }
+  ],
+  "shipping_options": [
+    {
+      "id": "standard",
+      "title": "Standard Shipping",
+      "description": "Arrives in 5-7 business days",
+      "price": 500,
+      "estimated_days": "5-7 business days"
+    },
+    {
+      "id": "express",
+      "title": "Express Shipping",
+      "description": "Arrives in 2-3 business days",
+      "price": 1500,
+      "estimated_days": "2-3 business days"
+    },
+    {
+      "id": "overnight",
+      "title": "Overnight Shipping",
+      "description": "Arrives next business day",
+      "price": 2999,
+      "estimated_days": "1 business day"
+    }
+  ],
+  "payment_handlers": [
+    {
+      "namespace": "com.stripe",
+      "id": "stripe_handler",
+      "config": {
+        "publishable_key": "pk_test_..."
+      }
+    },
+    {
+      "namespace": "com.paypal",
+      "id": "paypal_handler",
+      "config": {
+        "client_id": "your_paypal_client_id"
+      }
+    }
+  ]
+}

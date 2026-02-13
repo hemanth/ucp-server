@@ -11,14 +11,15 @@ import {
   Item,
   OrderConfirmation,
 } from './schema';
-
-// In-memory stores
-const checkoutSessions: Map<string, CheckoutSession> = new Map();
-const orders: Map<string, Order> = new Map();
+import { createPaymentIntent, isStripeConfigured } from './stripe';
+import { createPayPalOrder, isPayPalConfigured } from './paypal';
+import { logger } from './logger';
 
 export class UCPServer {
   private config: MerchantConfig;
   private itemsMap: Map<string, Item>;
+  private checkoutSessions: Map<string, CheckoutSession> = new Map();
+  private orders: Map<string, Order> = new Map();
 
   constructor(config: MerchantConfig) {
     this.config = config;
@@ -122,7 +123,7 @@ export class UCPServer {
   // Create checkout session
   createCheckout(data: { line_items: { id?: string; item: { id: string; title?: string; price?: number }; quantity: number }[] }): CheckoutSession {
     const id = `chk_${uuidv4().replace(/-/g, '').slice(0, 12)}`;
-    
+
     // Resolve items from catalog or use provided
     const lineItems: LineItem[] = data.line_items.map((li, idx) => {
       const catalogItem = this.itemsMap.get(li.item.id);
@@ -131,7 +132,7 @@ export class UCPServer {
         title: li.item.title || 'Unknown Item',
         price: li.item.price || 0,
       };
-      
+
       const subtotal = item.price * li.quantity;
       return {
         id: li.id || `li_${idx + 1}`,
@@ -183,13 +184,13 @@ export class UCPServer {
       expires_at: expiresAt,
     };
 
-    checkoutSessions.set(id, session);
+    this.checkoutSessions.set(id, session);
     return session;
   }
 
   // Get checkout session
   getCheckout(id: string): CheckoutSession | undefined {
-    return checkoutSessions.get(id);
+    return this.checkoutSessions.get(id);
   }
 
   // Update checkout session
@@ -198,7 +199,7 @@ export class UCPServer {
     line_items?: { id?: string; item: { id: string; title?: string; price?: number }; quantity: number }[];
     fulfillment?: Fulfillment;
   }): CheckoutSession | undefined {
-    const session = checkoutSessions.get(id);
+    const session = this.checkoutSessions.get(id);
     if (!session) return undefined;
 
     // Update buyer
@@ -239,18 +240,18 @@ export class UCPServer {
         const groups = method.groups?.length
           ? method.groups
           : [
-              {
-                id: `group_${mIdx + 1}`,
-                line_item_ids: session.line_items.map((li) => li.id),
-                selected_option_id: this.config.shipping_options[0]?.id,
-                options: this.config.shipping_options.map((opt) => ({
-                  id: opt.id,
-                  title: opt.title,
-                  description: opt.description || opt.estimated_days,
-                  totals: [{ type: 'total', amount: opt.price }],
-                })),
-              },
-            ];
+            {
+              id: `group_${mIdx + 1}`,
+              line_item_ids: session.line_items.map((li) => li.id),
+              selected_option_id: this.config.shipping_options[0]?.id,
+              options: this.config.shipping_options.map((opt) => ({
+                id: opt.id,
+                title: opt.title,
+                description: opt.description || opt.estimated_days,
+                totals: [{ type: 'total', amount: opt.price }],
+              })),
+            },
+          ];
 
         return {
           id: method.id || `method_${mIdx + 1}`,
@@ -293,20 +294,59 @@ export class UCPServer {
     session.messages = newMessages.length > 0 ? newMessages : undefined;
     session.status = newMessages.length > 0 ? 'incomplete' : 'ready_for_complete';
 
-    checkoutSessions.set(id, session);
+    this.checkoutSessions.set(id, session);
     return session;
   }
 
   // Complete checkout (create order)
   async completeCheckout(id: string): Promise<CheckoutSession | { error: string }> {
-    const session = checkoutSessions.get(id);
+    const session = this.checkoutSessions.get(id);
     if (!session) return { error: 'Checkout session not found' };
     if (session.status !== 'ready_for_complete') {
       return { error: 'Checkout is not ready for completion', messages: session.messages };
     }
 
     const orderId = `order_${uuidv4().replace(/-/g, '').slice(0, 12)}`;
-    
+
+    // Get total amount for payment
+    const totalAmount = session.totals.find(t => t.type === 'total')?.amount || 0;
+
+    // Payment processing - try Stripe first, then PayPal
+    if (totalAmount > 0) {
+      if (isStripeConfigured()) {
+        try {
+          const paymentIntent = await createPaymentIntent({
+            amount: totalAmount,
+            currency: session.currency,
+            checkoutId: id,
+            customerEmail: session.buyer?.email,
+            metadata: { order_id: orderId },
+          });
+          if (paymentIntent) {
+            logger.info({ checkoutId: id, paymentIntentId: paymentIntent.id, amount: totalAmount }, 'Stripe payment intent created');
+          }
+        } catch (error) {
+          logger.error({ error, checkoutId: id }, 'Failed to create Stripe payment intent');
+          return { error: 'Payment processing failed' };
+        }
+      } else if (isPayPalConfigured()) {
+        try {
+          const ppOrder = await createPayPalOrder({
+            amount: totalAmount,
+            currency: session.currency,
+            checkoutId: id,
+            description: `Order ${orderId}`,
+          });
+          if (ppOrder) {
+            logger.info({ checkoutId: id, paypalOrderId: ppOrder.id, amount: totalAmount }, 'PayPal order created');
+          }
+        } catch (error) {
+          logger.error({ error, checkoutId: id }, 'Failed to create PayPal order');
+          return { error: 'Payment processing failed' };
+        }
+      }
+    }
+
     const order: Order = {
       ucp: {
         version: UCP_VERSION,
@@ -322,25 +362,25 @@ export class UCPServer {
       totals: session.totals,
       fulfillment: session.fulfillment
         ? {
-            expectations: session.fulfillment.methods.map((m, idx) => ({
-              id: `exp_${idx + 1}`,
-              line_items: m.line_item_ids.map((liId) => {
-                const li = session.line_items.find((l) => l.id === liId);
-                return { id: liId, quantity: li?.quantity || 1 };
-              }),
-              method_type: m.type,
-              destination: m.destinations.find((d) => d.id === m.selected_destination_id),
-              description: 'Arrives in 5-7 business days',
-              fulfillable_on: 'now',
-            })),
-            events: [],
-          }
+          expectations: session.fulfillment.methods.map((m, idx) => ({
+            id: `exp_${idx + 1}`,
+            line_items: m.line_item_ids.map((liId) => {
+              const li = session.line_items.find((l) => l.id === liId);
+              return { id: liId, quantity: li?.quantity || 1 };
+            }),
+            method_type: m.type,
+            destination: m.destinations.find((d) => d.id === m.selected_destination_id),
+            description: 'Arrives in 5-7 business days',
+            fulfillable_on: 'now',
+          })),
+          events: [],
+        }
         : undefined,
       created_at: new Date().toISOString(),
     };
 
-    orders.set(orderId, order);
-    
+    this.orders.set(orderId, order);
+
     // Update session to completed state with order confirmation
     session.status = 'completed';
     session.order = {
@@ -349,29 +389,29 @@ export class UCPServer {
     };
     delete session.continue_url;
     delete session.messages;
-    checkoutSessions.set(id, session);
+    this.checkoutSessions.set(id, session);
 
     return session;
   }
 
   // Cancel checkout
   cancelCheckout(id: string): CheckoutSession | undefined {
-    const session = checkoutSessions.get(id);
+    const session = this.checkoutSessions.get(id);
     if (!session) return undefined;
     session.status = 'canceled';
     delete session.continue_url;
-    checkoutSessions.set(id, session);
+    this.checkoutSessions.set(id, session);
     return session;
   }
 
   // Get order
   getOrder(id: string): Order | undefined {
-    return orders.get(id);
+    return this.orders.get(id);
   }
 
   // List orders
   listOrders(): Order[] {
-    return Array.from(orders.values());
+    return Array.from(this.orders.values());
   }
 
   getConfig(): MerchantConfig {

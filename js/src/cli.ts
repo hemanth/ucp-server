@@ -7,11 +7,12 @@ import { MerchantConfigSchema, MerchantConfig } from './schema';
 import { createExpressApp } from './express-app';
 
 const program = new Command();
+const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'));
 
 program
   .name('ucpify')
   .description('Generate and run a UCP-compliant server for merchants')
-  .version('1.0.0');
+  .version(pkg.version);
 
 program
   .command('init')

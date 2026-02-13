@@ -29,8 +29,8 @@ const checkoutLimiter = rateLimit({
 
 export function createExpressApp(config: MerchantConfig, options?: { useDb?: boolean }): express.Application {
   const app = express();
-  const ucpServer: UCPServerType = options?.useDb 
-    ? new UCPServerDB(config) 
+  const ucpServer: UCPServerType = options?.useDb
+    ? new UCPServerDB(config)
     : new UCPServer(config);
   const useDb = options?.useDb ?? false;
 
@@ -58,7 +58,7 @@ export function createExpressApp(config: MerchantConfig, options?: { useDb?: boo
         const paymentIntent = event.data.object as { id: string; metadata?: { checkout_id?: string; order_id?: string } };
         const checkoutId = paymentIntent.metadata?.checkout_id;
         const orderId = paymentIntent.metadata?.order_id;
-        
+
         if (checkoutId && useDb) {
           db.prepare(`UPDATE checkouts SET payment_status = 'succeeded', updated_at = ? WHERE id = ?`)
             .run(new Date().toISOString(), checkoutId);
@@ -73,16 +73,16 @@ export function createExpressApp(config: MerchantConfig, options?: { useDb?: boo
         const paymentIntent = event.data.object as { id: string; metadata?: { checkout_id?: string; order_id?: string }; last_payment_error?: { message?: string } };
         const checkoutId = paymentIntent.metadata?.checkout_id;
         const orderId = paymentIntent.metadata?.order_id;
-        
+
         if (checkoutId && useDb) {
           db.prepare(`UPDATE checkouts SET payment_status = 'failed', updated_at = ? WHERE id = ?`)
             .run(new Date().toISOString(), checkoutId);
           if (orderId) {
             db.prepare(`UPDATE orders SET payment_status = 'failed' WHERE id = ?`).run(orderId);
           }
-          logger.error({ 
+          logger.error({
             checkoutId, orderId, paymentIntentId: paymentIntent.id,
-            error: paymentIntent.last_payment_error?.message 
+            error: paymentIntent.last_payment_error?.message
           }, 'Payment failed');
         }
         break;
@@ -107,7 +107,7 @@ export function createExpressApp(config: MerchantConfig, options?: { useDb?: boo
           // Get the checkout ID from the order
           const orderDetails = await getPayPalOrder(resource.id);
           const checkoutId = orderDetails?.customId;
-          
+
           if (checkoutId && useDb) {
             const now = new Date().toISOString();
             db.prepare(`UPDATE checkouts SET payment_status = 'succeeded', updated_at = ? WHERE paypal_order_id = ?`)
@@ -267,17 +267,17 @@ export function createExpressApp(config: MerchantConfig, options?: { useDb?: boo
       const checkoutStats = db.prepare(`
         SELECT status, COUNT(*) as count FROM checkouts GROUP BY status
       `).all() as { status: string; count: number }[];
-      
+
       const orderStats = db.prepare(`
         SELECT payment_status, payment_provider, COUNT(*) as count 
         FROM orders GROUP BY payment_status, payment_provider
       `).all() as { payment_status: string; payment_provider: string; count: number }[];
-      
+
       const revenueResult = db.prepare(`
         SELECT SUM(json_extract(totals_json, '$[?(@.type=="total")].amount')) as total
         FROM orders WHERE payment_status = 'succeeded'
       `).get() as { total: number | null };
-      
+
       const todayOrders = db.prepare(`
         SELECT COUNT(*) as count FROM orders 
         WHERE date(created_at) = date('now')
@@ -302,6 +302,17 @@ export function createExpressApp(config: MerchantConfig, options?: { useDb?: boo
 
   // Admin dashboard HTML
   app.get('/admin', (_req: Request, res: Response) => {
+    const statsScript = useDb
+      ? `fetch('/admin/stats').then(r=>r.json()).then(d=>{
+  document.getElementById('stats').innerHTML = \`
+    <div class="card"><div class="stat">\${Object.values(d.checkouts).reduce((a,b)=>a+b,0)}</div><div class="label">Total Checkouts</div></div>
+    <div class="card"><div class="stat">\${d.checkouts.completed||0}</div><div class="label">Completed</div></div>
+    <div class="card"><div class="stat">\${d.orders.today||0}</div><div class="label">Orders Today</div></div>
+    <div class="card"><div class="stat">$\${(d.revenue.total_succeeded/100).toFixed(2)}</div><div class="label">Revenue</div></div>
+  \`;
+}).catch(e=>document.getElementById('stats').innerHTML='Error loading stats');`
+      : `document.getElementById('stats').innerHTML = '<div class="card" style="grid-column:1/-1"><div class="label">Running in <strong>in-memory mode</strong>. Stats require <code>--db</code> mode.</div><div style="margin-top:8px;font-size:0.85em;color:#999">Restart with: <code>ucpify serve config.json</code> (DB is on by default)</div></div>';`;
+
     res.send(`<!DOCTYPE html>
 <html><head><title>UCP Admin</title>
 <style>
@@ -311,20 +322,12 @@ export function createExpressApp(config: MerchantConfig, options?: { useDb?: boo
   .label { color: #666; font-size: 0.9em; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
   h1 { color: #333; }
+  code { background: #e5e5e5; padding: 2px 6px; border-radius: 3px; font-size: 0.85em; }
 </style>
 </head><body>
 <h1>🛒 UCP Server Admin</h1>
 <div class="grid" id="stats">Loading...</div>
-<script>
-fetch('/admin/stats').then(r=>r.json()).then(d=>{
-  document.getElementById('stats').innerHTML = \`
-    <div class="card"><div class="stat">\${Object.values(d.checkouts).reduce((a,b)=>a+b,0)}</div><div class="label">Total Checkouts</div></div>
-    <div class="card"><div class="stat">\${d.checkouts.completed||0}</div><div class="label">Completed</div></div>
-    <div class="card"><div class="stat">\${d.orders.today||0}</div><div class="label">Orders Today</div></div>
-    <div class="card"><div class="stat">$\${(d.revenue.total_succeeded/100).toFixed(2)}</div><div class="label">Revenue</div></div>
-  \`;
-}).catch(e=>document.getElementById('stats').innerHTML='Error loading stats');
-</script>
+<script>${statsScript}</script>
 </body></html>`);
   });
 
@@ -332,8 +335,8 @@ fetch('/admin/stats').then(r=>r.json()).then(d=>{
   app.get('/health', (_req: Request, res: Response) => {
     const dbHealthy = isDbHealthy();
     const status = dbHealthy ? 'ok' : 'degraded';
-    res.status(dbHealthy ? 200 : 503).json({ 
-      status, 
+    res.status(dbHealthy ? 200 : 503).json({
+      status,
       ucp_version: UCP_VERSION,
       database: dbHealthy ? 'connected' : 'disconnected',
       timestamp: new Date().toISOString(),

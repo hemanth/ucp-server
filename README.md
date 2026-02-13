@@ -1,28 +1,26 @@
 # ucpify
 
-**JSON → Commerce Server in seconds.**
+Turn a JSON file into a working commerce server.
 
-Generate a fully [UCP](https://ucp.dev)-compliant commerce server from a single JSON config. Stripe, PayPal, OAuth 2.0, SQLite — all wired up.
+You have products. Maybe in a spreadsheet, maybe in a config file. You want to sell them online without building a full backend from scratch. ucpify takes a single `merchant-config.json` and gives you a [UCP](https://ucp.dev)-compliant commerce API with payments, persistence, and OAuth wired in.
+
+Node.js and Python. Same config, same behavior.
 
 ![ucpify architecture](assets/ucpify-arch.png)
 
-## Install
+## Get started
 
 ```bash
-npm install ucpify        # Node.js
-pip install ucpify        # Python
-```
-
-## Quick Start
-
-```bash
-npx ucpify init
+npm install ucpify        # or: pip install ucpify
+npx ucpify init           # generates a sample config
 npx ucpify serve merchant-config.json
 ```
 
-## Config
+That's it. Server is running.
 
-One JSON. Full commerce.
+## The config
+
+Everything is declared in one file:
 
 ![ucpify config](assets/ucpify-config.png)
 
@@ -48,12 +46,16 @@ One JSON. Full commerce.
 }
 ```
 
-## Endpoints
+Products, shipping, payments, auth. No code to write.
+
+## What you get
 
 ![ucpify endpoints](assets/ucpify-endpoints.png)
 
-| Method | Path | Purpose |
-|--------|------|---------|
+13 endpoints covering the full checkout lifecycle and OAuth:
+
+| Method | Path | What it does |
+|--------|------|--------------|
 | `GET` | `/.well-known/ucp` | UCP discovery |
 | `POST` | `/ucp/v1/checkout-sessions` | Create checkout |
 | `GET` | `/ucp/v1/checkout-sessions/:id` | Get session |
@@ -68,41 +70,40 @@ One JSON. Full commerce.
 | `POST` | `/oauth2/token` | Token exchange |
 | `POST` | `/oauth2/revoke` | Token revocation |
 
-## OAuth 2.0 Identity Linking
+Plus `/health` and `/admin` for monitoring.
 
-ucpify supports [UCP Identity Linking](https://ucp.dev/specification/identity-linking) via OAuth 2.0:
+## Identity linking
+
+UCP uses OAuth 2.0 so AI agents can act on behalf of users without sharing credentials. ucpify supports a built-in OAuth server or an external provider:
 
 ```json
-// Built-in OAuth server
 { "oauth": { "provider": "built-in" } }
+```
 
-// External provider (Auth0, Okta, etc.)
+```json
 { "oauth": { "provider": "external", "issuer": "https://...", "authorization_endpoint": "https://...", "token_endpoint": "https://..." } }
 ```
 
-Register clients via CLI:
+Register a client:
 
 ```bash
-npx ucpify oauth:add-client merchant-config.json \
-  --name "My Agent" \
-  --redirect-uri "http://localhost:8080/callback"
+npx ucpify oauth:add-client merchant-config.json --name "My Agent" --redirect-uri "http://localhost:8080/callback"
 ```
 
-Features: Authorization Code + PKCE, token refresh/revocation, Bearer middleware on `/ucp/v1/*`, RFC 8414 metadata.
+Supports Authorization Code with PKCE, token refresh, revocation, and Bearer middleware on all `/ucp/v1/*` routes.
 
-## Features
+## What's included
 
-- **Payments** — Stripe + PayPal, webhook handlers included
-- **OAuth 2.0** — Built-in or external provider, PKCE, scoped tokens
-- **SQLite** — WAL mode, proper schemas, foreign keys, indexes
-- **Validation** — Zod/Pydantic schemas, rate limiting
-- **Admin** — Dashboard + health endpoint
-- **Dual runtime** — Node.js and Python, feature parity
+- Stripe and PayPal payment processing, webhooks included
+- OAuth 2.0 identity linking, built-in or external
+- SQLite with WAL mode, proper schemas, indexes
+- Input validation and rate limiting
+- Admin dashboard and health checks
+- Works in Docker
 
-## Environment
+## Environment variables
 
 ```bash
-UCP_DOMAIN=https://your-store.com
 STRIPE_SECRET_KEY=sk_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 PAYPAL_CLIENT_ID=...
@@ -112,16 +113,16 @@ PAYPAL_CLIENT_SECRET=...
 ## CLI
 
 ```bash
-ucpify init                          # Generate sample config
-ucpify validate config.json          # Validate config
-ucpify serve config.json             # Start server (SQLite)
-ucpify serve config.json --no-db     # In-memory mode
-ucpify oauth:add-client config.json  # Register OAuth client
+ucpify init                          # sample config
+ucpify validate config.json          # check your config
+ucpify serve config.json             # start server
+ucpify serve config.json --no-db     # in-memory mode
+ucpify oauth:add-client config.json  # register OAuth client
 ```
 
 ## Links
 
-- [npm](https://www.npmjs.com/package/ucpify) · [PyPI](https://pypi.org/project/ucpify/) · [GitHub](https://github.com/hemanth/ucpify) · [UCP Spec](https://ucp.dev)
+[npm](https://www.npmjs.com/package/ucpify) · [PyPI](https://pypi.org/project/ucpify/) · [GitHub](https://github.com/hemanth/ucpify) · [UCP spec](https://ucp.dev)
 
 ## License
 

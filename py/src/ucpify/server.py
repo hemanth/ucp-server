@@ -60,6 +60,10 @@ class UCPServer:
                         "spec": "https://ucp.dev/specification/order",
                         "schema": "https://ucp.dev/schemas/shopping/order.json",
                     }],
+                    **({"dev.ucp.identity_linking": [{
+                        "version": UCP_VERSION,
+                        "spec": "https://ucp.dev/specification/identity-linking",
+                    }]} if self.config.oauth else {}),
                 },
                 "payment_handlers": payment_handlers,
             }

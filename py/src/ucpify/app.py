@@ -1,7 +1,9 @@
 """Flask application factory for UCP server."""
 
+import base64
 from datetime import datetime
-from flask import Flask, request, jsonify, g
+from urllib.parse import urlencode
+from flask import Flask, request, jsonify, g, redirect, make_response
 from ucpify.schema import MerchantConfig, UCP_VERSION
 from ucpify.server import UCPServer
 from ucpify.server_db import UCPServerDB
@@ -9,12 +11,17 @@ from ucpify.db import is_db_healthy, get_db
 from ucpify.logger import logger
 from ucpify.stripe_payment import construct_webhook_event
 from ucpify.paypal_payment import capture_paypal_order, get_paypal_order
+from ucpify.oauth import OAuthManager
 
 
 def create_flask_app(config: MerchantConfig, use_db: bool = True) -> Flask:
     """Create a Flask app with UCP endpoints."""
     app = Flask(__name__)
     ucp_server = UCPServerDB(config) if use_db else UCPServer(config)
+
+    # OAuth setup (built-in or external)
+    oauth_enabled = config.oauth is not None
+    oauth_manager = OAuthManager() if oauth_enabled and config.oauth and config.oauth.provider == "built-in" else None
 
     @app.route("/webhooks/stripe", methods=["POST"])
     def stripe_webhook():
@@ -126,22 +133,193 @@ def create_flask_app(config: MerchantConfig, use_db: bool = True) -> Flask:
         response.headers["Access-Control-Allow-Headers"] = "Content-Type, UCP-Agent, Authorization"
         return response
 
+    # ─── OAuth 2.0 Identity Linking ─────────────────────────────────────
+
+    @app.route("/.well-known/oauth-authorization-server", methods=["GET"])
+    def oauth_metadata():
+        if not oauth_enabled:
+            return jsonify({"error": "OAuth not configured"}), 404
+        if config.oauth and config.oauth.provider == "external":
+            return jsonify({
+                "issuer": str(config.oauth.issuer),
+                "authorization_endpoint": str(config.oauth.authorization_endpoint),
+                "token_endpoint": str(config.oauth.token_endpoint),
+                "revocation_endpoint": str(config.oauth.revocation_endpoint) if config.oauth.revocation_endpoint else None,
+                "jwks_uri": str(config.oauth.jwks_uri) if config.oauth.jwks_uri else None,
+                "scopes_supported": ["ucp:scopes:checkout_session"],
+                "response_types_supported": ["code"],
+                "grant_types_supported": ["authorization_code", "refresh_token"],
+                "token_endpoint_auth_methods_supported": ["client_secret_basic"],
+            })
+        elif oauth_manager:
+            return jsonify(oauth_manager.get_server_metadata(str(config.domain)))
+        return jsonify({"error": "OAuth misconfigured"}), 500
+
+    if oauth_manager:
+        @app.route("/oauth2/authorize", methods=["GET"])
+        def oauth_authorize_get():
+            client_id = request.args.get("client_id", "")
+            redirect_uri = request.args.get("redirect_uri", "")
+            scope = request.args.get("scope", "ucp:scopes:checkout_session")
+            state = request.args.get("state", "")
+            response_type = request.args.get("response_type", "")
+            code_challenge = request.args.get("code_challenge", "")
+            code_challenge_method = request.args.get("code_challenge_method", "")
+
+            if response_type != "code":
+                return jsonify({"error": "unsupported_response_type"}), 400
+
+            client = oauth_manager.get_client(client_id)
+            if not client:
+                return jsonify({"error": "invalid_client"}), 400
+            if redirect_uri not in client.redirect_uris:
+                return jsonify({"error": "invalid_redirect_uri"}), 400
+
+            return f"""<!DOCTYPE html>
+<html><head><title>Authorize - {config.name}</title>
+<style>
+body {{ font-family: system-ui, sans-serif; max-width: 400px; margin: 80px auto; padding: 0 20px; }}
+h2 {{ margin-bottom: 4px; }}
+p {{ color: #666; }}
+.scope {{ background: #f0f0f0; padding: 8px 12px; border-radius: 6px; font-family: monospace; }}
+button {{ padding: 10px 24px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-right: 8px; }}
+.allow {{ background: #000; color: #fff; }}
+.deny {{ background: #e5e5e5; }}
+</style></head>
+<body>
+<h2>{config.name}</h2>
+<p><strong>{client.name}</strong> wants to access your account.</p>
+<div class="scope">{scope}</div>
+<p>This will allow the app to manage checkout sessions on your behalf.</p>
+<form method="POST" action="/oauth2/authorize">
+  <input type="hidden" name="client_id" value="{client_id}">
+  <input type="hidden" name="redirect_uri" value="{redirect_uri}">
+  <input type="hidden" name="scope" value="{scope}">
+  <input type="hidden" name="state" value="{state}">
+  <input type="hidden" name="code_challenge" value="{code_challenge}">
+  <input type="hidden" name="code_challenge_method" value="{code_challenge_method}">
+  <input type="hidden" name="user_id" value="user_1">
+  <button type="submit" name="action" value="allow" class="allow">Allow</button>
+  <button type="submit" name="action" value="deny" class="deny">Deny</button>
+</form>
+</body></html>"""
+
+        @app.route("/oauth2/authorize", methods=["POST"])
+        def oauth_authorize_post():
+            client_id = request.form.get("client_id", "")
+            redirect_uri = request.form.get("redirect_uri", "")
+            scope = request.form.get("scope", "")
+            state = request.form.get("state", "")
+            action = request.form.get("action", "")
+            user_id = request.form.get("user_id", "")
+            code_challenge = request.form.get("code_challenge") or None
+            code_challenge_method = request.form.get("code_challenge_method") or None
+
+            if action == "deny":
+                params = {"error": "access_denied"}
+                if state:
+                    params["state"] = state
+                return redirect(f"{redirect_uri}?{urlencode(params)}")
+
+            code = oauth_manager.create_authorization_code(
+                client_id, user_id, scope, redirect_uri,
+                code_challenge, code_challenge_method,
+            )
+            params = {"code": code}
+            if state:
+                params["state"] = state
+            return redirect(f"{redirect_uri}?{urlencode(params)}")
+
+        @app.route("/oauth2/token", methods=["POST"])
+        def oauth_token():
+            # Client auth via HTTP Basic (RFC 7617)
+            auth_header = request.headers.get("Authorization", "")
+            client_id = request.form.get("client_id", "")
+            client_secret = request.form.get("client_secret", "")
+
+            if auth_header.startswith("Basic "):
+                decoded = base64.b64decode(auth_header[6:]).decode()
+                client_id, client_secret = decoded.split(":", 1)
+
+            if not oauth_manager.authenticate_client(client_id, client_secret):
+                return jsonify({"error": "invalid_client"}), 401
+
+            grant_type = request.form.get("grant_type", "")
+
+            if grant_type == "authorization_code":
+                result = oauth_manager.exchange_code(
+                    request.form.get("code", ""),
+                    client_id,
+                    request.form.get("redirect_uri", ""),
+                    request.form.get("code_verifier"),
+                )
+                if "error" in result:
+                    return jsonify(result), 400
+                return jsonify({**result, "token_type": "Bearer"})
+
+            elif grant_type == "refresh_token":
+                result = oauth_manager.refresh_access_token(
+                    request.form.get("refresh_token", ""), client_id
+                )
+                if "error" in result:
+                    return jsonify(result), 400
+                return jsonify({**result, "token_type": "Bearer"})
+
+            return jsonify({"error": "unsupported_grant_type"}), 400
+
+        @app.route("/oauth2/revoke", methods=["POST"])
+        def oauth_revoke():
+            auth_header = request.headers.get("Authorization", "")
+            client_id = request.form.get("client_id", "")
+            client_secret = request.form.get("client_secret", "")
+
+            if auth_header.startswith("Basic "):
+                decoded = base64.b64decode(auth_header[6:]).decode()
+                client_id, client_secret = decoded.split(":", 1)
+
+            if not oauth_manager.authenticate_client(client_id, client_secret):
+                return jsonify({"error": "invalid_client"}), 401
+
+            oauth_manager.revoke_token(request.form.get("token", ""))
+            return jsonify({}), 200
+
+    # Bearer token middleware for UCP routes
+    if oauth_enabled and oauth_manager:
+        @app.before_request
+        def check_bearer_token():
+            if not request.path.startswith("/ucp/v1"):
+                return None
+
+            auth_header = request.headers.get("Authorization", "")
+            if not auth_header.startswith("Bearer "):
+                return jsonify({"error": "missing_token", "message": "Authorization: Bearer <token> required"}), 401
+
+            token_str = auth_header[7:]
+            valid_token = oauth_manager.validate_access_token(token_str)
+            if not valid_token:
+                return jsonify({"error": "invalid_token", "message": "Token is expired, revoked, or invalid"}), 401
+
+            g.oauth_user_id = valid_token.user_id
+            g.oauth_client_id = valid_token.client_id
+            g.oauth_scope = valid_token.scope
+            return None
+
     @app.route("/.well-known/ucp", methods=["GET"])
     def get_ucp_profile():
-        return jsonify(ucpify.get_profile())
+        return jsonify(ucp_server.get_profile())
 
     @app.route("/ucp/v1/checkout-sessions", methods=["POST"])
     def create_checkout():
         try:
             data = request.get_json()
-            session = ucpify.create_checkout(data)
+            session = ucp_server.create_checkout(data)
             return jsonify(session), 201
         except Exception as e:
             return jsonify({"error": "Invalid request", "details": str(e)}), 400
 
     @app.route("/ucp/v1/checkout-sessions/<checkout_id>", methods=["GET"])
     def get_checkout(checkout_id: str):
-        session = ucpify.get_checkout(checkout_id)
+        session = ucp_server.get_checkout(checkout_id)
         if not session:
             return jsonify({"error": "Checkout session not found"}), 404
         return jsonify(session)
@@ -150,7 +328,7 @@ def create_flask_app(config: MerchantConfig, use_db: bool = True) -> Flask:
     def update_checkout(checkout_id: str):
         try:
             data = request.get_json()
-            session = ucpify.update_checkout(checkout_id, data)
+            session = ucp_server.update_checkout(checkout_id, data)
             if not session:
                 return jsonify({"error": "Checkout session not found"}), 404
             return jsonify(session)
@@ -159,25 +337,25 @@ def create_flask_app(config: MerchantConfig, use_db: bool = True) -> Flask:
 
     @app.route("/ucp/v1/checkout-sessions/<checkout_id>/complete", methods=["POST"])
     def complete_checkout(checkout_id: str):
-        result = ucpify.complete_checkout(checkout_id)
+        result = ucp_server.complete_checkout(checkout_id)
         if "error" in result:
             return jsonify(result), 400
         return jsonify(result), 201
 
     @app.route("/ucp/v1/checkout-sessions/<checkout_id>/cancel", methods=["POST"])
     def cancel_checkout(checkout_id: str):
-        session = ucpify.cancel_checkout(checkout_id)
+        session = ucp_server.cancel_checkout(checkout_id)
         if not session:
             return jsonify({"error": "Checkout session not found"}), 404
         return jsonify(session)
 
     @app.route("/ucp/v1/orders", methods=["GET"])
     def list_orders():
-        return jsonify(ucpify.list_orders())
+        return jsonify(ucp_server.list_orders())
 
     @app.route("/ucp/v1/orders/<order_id>", methods=["GET"])
     def get_order(order_id: str):
-        order = ucpify.get_order(order_id)
+        order = ucp_server.get_order(order_id)
         if not order:
             return jsonify({"error": "Order not found"}), 404
         return jsonify(order)

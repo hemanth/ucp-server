@@ -76,6 +76,14 @@ export class UCPServer {
               schema: 'https://ucp.dev/schemas/shopping/order.json',
             },
           ],
+          ...(this.config.oauth ? {
+            'dev.ucp.identity_linking': [
+              {
+                version: UCP_VERSION,
+                spec: 'https://ucp.dev/specification/identity-linking',
+              },
+            ],
+          } : {}),
         },
         payment_handlers: paymentHandlers,
       },

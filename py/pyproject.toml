@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ucpify"
-version = "1.1.0"
+version = "1.2.0"
 description = "Generate UCP-compliant servers for merchants from a simple schema"
 readme = "README.md"
 license = {text = "MIT"}

@@ -1,6 +1,6 @@
 """Schema definitions for UCP merchant configuration."""
 
-from typing import Optional
+from typing import Optional, Literal, Union, Annotated
 from pydantic import BaseModel, Field, HttpUrl
 
 UCP_VERSION = "2026-01-11"
@@ -32,6 +32,27 @@ class PaymentHandler(BaseModel):
     config: Optional[dict] = None
 
 
+class OAuthBuiltInConfig(BaseModel):
+    """Built-in OAuth provider config."""
+    provider: Literal["built-in"]
+
+
+class OAuthExternalConfig(BaseModel):
+    """External OAuth provider config."""
+    provider: Literal["external"]
+    issuer: HttpUrl
+    authorization_endpoint: HttpUrl
+    token_endpoint: HttpUrl
+    revocation_endpoint: Optional[HttpUrl] = None
+    jwks_uri: Optional[HttpUrl] = None
+
+
+OAuthConfig = Annotated[
+    Union[OAuthBuiltInConfig, OAuthExternalConfig],
+    Field(discriminator="provider"),
+]
+
+
 class MerchantConfig(BaseModel):
     """Merchant configuration schema."""
     name: str
@@ -44,6 +65,7 @@ class MerchantConfig(BaseModel):
     payment_handlers: list[PaymentHandler] = []
     tax_rate: float = Field(default=0.0, ge=0, le=1)
     port: int = 3000
+    oauth: Optional[OAuthConfig] = None
 
 
 # Checkout types

@@ -1,5 +1,5 @@
 {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Generate UCP-compliant servers for merchants from a simple schema",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

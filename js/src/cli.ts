@@ -115,6 +115,9 @@ program
       const app = createExpressApp(config, { useDb });
       const port = config.port;
       const storageType = useDb ? 'SQLite' : 'In-memory';
+      const oauthStatus = config.oauth
+        ? config.oauth.provider === 'built-in' ? 'Built-in' : `External (${config.oauth.issuer})`
+        : 'Disabled';
 
       app.listen(port, () => {
         console.log(`
@@ -125,6 +128,7 @@ program
 ║  Domain:   ${config.domain.padEnd(49)}║
 ║  Port:     ${String(port).padEnd(49)}║
 ║  Storage:  ${storageType.padEnd(49)}║
+║  OAuth:    ${oauthStatus.padEnd(49)}║
 ╠══════════════════════════════════════════════════════════════╣
 ║  Endpoints:                                                  ║
 ║  • GET  /.well-known/ucp              - UCP Profile          ║
@@ -136,7 +140,11 @@ program
 ║  • GET  /ucp/v1/orders                - List Orders          ║
 ║  • GET  /ucp/v1/orders/:id            - Get Order            ║
 ║  • GET  /ucp/v1/items                 - Product Catalog      ║
-║  • GET  /health                       - Health Check         ║
+║  • GET  /health                       - Health Check         ║${config.oauth ? `
+║  • GET  /.well-known/oauth-...        - OAuth Metadata       ║` : ''}${config.oauth?.provider === 'built-in' ? `
+║  • GET  /oauth2/authorize             - Authorization        ║
+║  • POST /oauth2/token                 - Token Exchange       ║
+║  • POST /oauth2/revoke                - Token Revocation     ║` : ''}
 ╚══════════════════════════════════════════════════════════════╝
 
 🔗 UCP Profile: http://localhost:${port}/.well-known/ucp
@@ -144,6 +152,7 @@ program
 🚚 Shipping: ${config.shipping_options.length} options available
 💳 Payment Handlers: ${config.payment_handlers.length} configured
 💾 Storage: ${storageType}${useDb ? ' (./data/ucp.db)' : ''}
+🔐 OAuth: ${oauthStatus}
         `);
       });
     } catch (error) {
@@ -176,10 +185,30 @@ program
       console.log(`   • Products: ${config.items.length}`);
       console.log(`   • Shipping Options: ${config.shipping_options.length}`);
       console.log(`   • Payment Handlers: ${config.payment_handlers.length}`);
+      console.log(`   • OAuth: ${config.oauth ? config.oauth.provider : 'Disabled'}`);
     } catch (error) {
       console.error('❌ Validation failed:', error);
       process.exit(1);
     }
+  });
+
+program
+  .command('oauth:add-client')
+  .description('Register a new OAuth client (built-in provider only)')
+  .argument('<name>', 'Client application name')
+  .option('-r, --redirect-uri <uri>', 'Redirect URI', 'http://localhost:3000/callback')
+  .action((name, options) => {
+    const { OAuthManager } = require('./oauth');
+    const oauthManager = new OAuthManager();
+    const client = oauthManager.createClient(name, [options.redirectUri]);
+
+    console.log(`\n✅ OAuth client created!\n`);
+    console.log(`   Client ID:     ${client.client_id}`);
+    console.log(`   Client Secret: ${client.client_secret}`);
+    console.log(`   Redirect URI:  ${options.redirectUri}`);
+    console.log(`\n⚠️  Save the client secret. It cannot be retrieved later.`);
+    console.log(`\n📝 Add to your merchant-config.json:`);
+    console.log(JSON.stringify({ oauth: { provider: 'built-in' } }, null, 2));
   });
 
 program.parse();

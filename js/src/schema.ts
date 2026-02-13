@@ -30,6 +30,23 @@ export const PaymentHandlerSchema = z.object({
   config: z.record(z.string(), z.unknown()).optional(),
 });
 
+// OAuth Configuration Schema
+export const OAuthConfigSchema = z.discriminatedUnion('provider', [
+  z.object({
+    provider: z.literal('built-in'),
+  }),
+  z.object({
+    provider: z.literal('external'),
+    issuer: z.string().url(),
+    authorization_endpoint: z.string().url(),
+    token_endpoint: z.string().url(),
+    revocation_endpoint: z.string().url().optional(),
+    jwks_uri: z.string().url().optional(),
+  }),
+]);
+
+export type OAuthConfig = z.infer<typeof OAuthConfigSchema>;
+
 // Merchant Configuration Schema
 export const MerchantConfigSchema = z.object({
   name: z.string(),
@@ -42,6 +59,7 @@ export const MerchantConfigSchema = z.object({
   payment_handlers: z.array(PaymentHandlerSchema).default([]),
   tax_rate: z.number().min(0).max(1).default(0), // e.g., 0.08 for 8%
   port: z.number().default(3000),
+  oauth: OAuthConfigSchema.optional(),
 });
 
 export type Item = z.infer<typeof ItemSchema>;

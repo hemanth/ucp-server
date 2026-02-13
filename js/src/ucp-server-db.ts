@@ -57,6 +57,11 @@ export class UCPServerDB {
           'dev.ucp.shopping.order': [
             { version: UCP_VERSION, spec: 'https://ucp.dev/specification/order', schema: 'https://ucp.dev/schemas/shopping/order.json' },
           ],
+          ...(this.config.oauth ? {
+            'dev.ucp.identity_linking': [
+              { version: UCP_VERSION, spec: 'https://ucp.dev/specification/identity-linking' },
+            ],
+          } : {}),
         },
         payment_handlers: paymentHandlers,
       },
@@ -105,9 +110,9 @@ export class UCPServerDB {
 
   private sessionFromRow(row: any): CheckoutSession | undefined {
     if (!row) return undefined;
-    
+
     const lineItems = db.prepare('SELECT * FROM line_items WHERE checkout_id = ?').all(row.id) as any[];
-    
+
     return {
       ucp: {
         version: UCP_VERSION,
@@ -169,7 +174,7 @@ export class UCPServerDB {
     `);
 
     db.transaction(() => {
-      insertCheckout.run(id, status, this.config.currency, JSON.stringify(totals), JSON.stringify(links), 
+      insertCheckout.run(id, status, this.config.currency, JSON.stringify(totals), JSON.stringify(links),
         messages.length > 0 ? JSON.stringify(messages) : null, continueUrl, expiresAt, now, now);
       for (const li of lineItems) {
         insertLineItem.run(li.id, id, JSON.stringify(li.item), li.quantity, JSON.stringify(li.totals));
@@ -284,13 +289,13 @@ export class UCPServerDB {
 
     // Get total amount for payment
     const totalAmount = session.totals.find(t => t.type === 'total')?.amount || 0;
-    
+
     // Payment processing - try Stripe first, then PayPal
     let paymentIntentId: string | null = null;
     let paypalOrderId: string | null = null;
     let paymentProvider: string | null = null;
     let paymentStatus = 'none';
-    
+
     if (totalAmount > 0) {
       // Try Stripe first
       if (isStripeConfigured()) {

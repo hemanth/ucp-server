@@ -7,6 +7,7 @@ import { isDbHealthy, db } from './db';
 import { logger } from './logger';
 import { constructWebhookEvent, isStripeConfigured } from './stripe';
 import { getPayPalOrder, capturePayPalOrder } from './paypal';
+import { OAuthManager } from './oauth';
 
 type UCPServerType = UCPServer | UCPServerDB;
 
@@ -34,6 +35,12 @@ export function createExpressApp(config: MerchantConfig, options?: { useDb?: boo
     : new UCPServer(config);
   const useDb = options?.useDb ?? false;
 
+  // OAuth setup (built-in or external)
+  const oauthEnabled = !!config.oauth;
+  const oauthManager = oauthEnabled && config.oauth?.provider === 'built-in'
+    ? new OAuthManager()
+    : null;
+
   // Apply rate limiting to API routes
   app.use('/ucp/v1/', apiLimiter);
 
@@ -51,7 +58,7 @@ export function createExpressApp(config: MerchantConfig, options?: { useDb?: boo
       return;
     }
 
-    logger.info({ eventType: event.type, eventId: event.id }, 'Stripe webhook received');
+    logger.info({ type: event.type }, 'Stripe webhook received');
 
     switch (event.type) {
       case 'payment_intent.succeeded': {
@@ -157,6 +164,204 @@ export function createExpressApp(config: MerchantConfig, options?: { useDb?: boo
     res.header('Access-Control-Allow-Headers', 'Content-Type, UCP-Agent, Authorization');
     next();
   });
+
+  // ─── OAuth 2.0 Identity Linking ─────────────────────────────────────
+
+  // RFC 8414: OAuth Authorization Server Metadata
+  app.get('/.well-known/oauth-authorization-server', (_req: Request, res: Response) => {
+    if (!oauthEnabled) {
+      res.status(404).json({ error: 'OAuth not configured' });
+      return;
+    }
+
+    if (config.oauth?.provider === 'external') {
+      // Proxy the merchant's external OAuth metadata
+      res.json({
+        issuer: config.oauth.issuer,
+        authorization_endpoint: config.oauth.authorization_endpoint,
+        token_endpoint: config.oauth.token_endpoint,
+        revocation_endpoint: config.oauth.revocation_endpoint,
+        jwks_uri: config.oauth.jwks_uri,
+        scopes_supported: ['ucp:scopes:checkout_session'],
+        response_types_supported: ['code'],
+        grant_types_supported: ['authorization_code', 'refresh_token'],
+        token_endpoint_auth_methods_supported: ['client_secret_basic'],
+      });
+    } else if (oauthManager) {
+      res.json(oauthManager.getServerMetadata(config.domain));
+    }
+  });
+
+  // Built-in OAuth endpoints (only when provider is "built-in")
+  if (oauthManager) {
+    // Authorization endpoint - renders consent screen
+    app.get('/oauth2/authorize', (req: Request, res: Response) => {
+      const { client_id, redirect_uri, scope, state, response_type, code_challenge, code_challenge_method } = req.query;
+
+      if (response_type !== 'code') {
+        res.status(400).json({ error: 'unsupported_response_type' });
+        return;
+      }
+
+      const client = oauthManager.getClient(client_id as string);
+      if (!client) {
+        res.status(400).json({ error: 'invalid_client' });
+        return;
+      }
+
+      if (!client.redirect_uris.includes(redirect_uri as string)) {
+        res.status(400).json({ error: 'invalid_redirect_uri' });
+        return;
+      }
+
+      // Render a minimal consent page
+      res.send(`<!DOCTYPE html>
+<html><head><title>Authorize - ${config.name}</title>
+<style>
+body { font-family: system-ui, sans-serif; max-width: 400px; margin: 80px auto; padding: 0 20px; }
+h2 { margin-bottom: 4px; }
+p { color: #666; }
+.scope { background: #f0f0f0; padding: 8px 12px; border-radius: 6px; font-family: monospace; }
+button { padding: 10px 24px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-right: 8px; }
+.allow { background: #000; color: #fff; }
+.deny { background: #e5e5e5; }
+</style></head>
+<body>
+<h2>${config.name}</h2>
+<p><strong>${client.name}</strong> wants to access your account.</p>
+<div class="scope">${scope || 'ucp:scopes:checkout_session'}</div>
+<p>This will allow the app to manage checkout sessions on your behalf.</p>
+<form method="POST" action="/oauth2/authorize">
+  <input type="hidden" name="client_id" value="${client_id}">
+  <input type="hidden" name="redirect_uri" value="${redirect_uri}">
+  <input type="hidden" name="scope" value="${scope || 'ucp:scopes:checkout_session'}">
+  <input type="hidden" name="state" value="${state || ''}">
+  <input type="hidden" name="code_challenge" value="${code_challenge || ''}">
+  <input type="hidden" name="code_challenge_method" value="${code_challenge_method || ''}">
+  <input type="hidden" name="user_id" value="user_1">
+  <button type="submit" name="action" value="allow" class="allow">Allow</button>
+  <button type="submit" name="action" value="deny" class="deny">Deny</button>
+</form>
+</body></html>`);
+    });
+
+    // Handle consent form submission
+    app.post('/oauth2/authorize', express.urlencoded({ extended: false }), (req: Request, res: Response) => {
+      const { client_id, redirect_uri, scope, state, action, user_id, code_challenge, code_challenge_method } = req.body;
+
+      if (action === 'deny') {
+        const url = new URL(redirect_uri);
+        url.searchParams.set('error', 'access_denied');
+        if (state) url.searchParams.set('state', state);
+        res.redirect(url.toString());
+        return;
+      }
+
+      const code = oauthManager.createAuthorizationCode(
+        client_id, user_id, scope,
+        redirect_uri,
+        code_challenge || undefined,
+        code_challenge_method || undefined,
+      );
+
+      const url = new URL(redirect_uri);
+      url.searchParams.set('code', code);
+      if (state) url.searchParams.set('state', state);
+      res.redirect(url.toString());
+    });
+
+    // Token endpoint
+    app.post('/oauth2/token', (req: Request, res: Response) => {
+      // Client auth via HTTP Basic (RFC 7617)
+      const authHeader = req.headers.authorization;
+      let clientId = req.body.client_id;
+      let clientSecret = req.body.client_secret;
+
+      if (authHeader && authHeader.startsWith('Basic ')) {
+        const decoded = Buffer.from(authHeader.slice(6), 'base64').toString();
+        const [id, secret] = decoded.split(':');
+        clientId = id;
+        clientSecret = secret;
+      }
+
+      if (!oauthManager.authenticateClient(clientId, clientSecret)) {
+        res.status(401).json({ error: 'invalid_client' });
+        return;
+      }
+
+      const grantType = req.body.grant_type;
+
+      if (grantType === 'authorization_code') {
+        const result = oauthManager.exchangeCode(
+          req.body.code,
+          clientId,
+          req.body.redirect_uri,
+          req.body.code_verifier,
+        );
+        if ('error' in result) {
+          res.status(400).json(result);
+          return;
+        }
+        res.json({ ...result, token_type: 'Bearer' });
+      } else if (grantType === 'refresh_token') {
+        const result = oauthManager.refreshAccessToken(req.body.refresh_token, clientId);
+        if ('error' in result) {
+          res.status(400).json(result);
+          return;
+        }
+        res.json({ ...result, token_type: 'Bearer' });
+      } else {
+        res.status(400).json({ error: 'unsupported_grant_type' });
+      }
+    });
+
+    // Token revocation (RFC 7009)
+    app.post('/oauth2/revoke', (req: Request, res: Response) => {
+      const authHeader = req.headers.authorization;
+      let clientId = req.body.client_id;
+      let clientSecret = req.body.client_secret;
+
+      if (authHeader && authHeader.startsWith('Basic ')) {
+        const decoded = Buffer.from(authHeader.slice(6), 'base64').toString();
+        const [id, secret] = decoded.split(':');
+        clientId = id;
+        clientSecret = secret;
+      }
+
+      if (!oauthManager.authenticateClient(clientId, clientSecret)) {
+        res.status(401).json({ error: 'invalid_client' });
+        return;
+      }
+
+      oauthManager.revokeToken(req.body.token);
+      // RFC 7009: always respond 200, even if token was invalid
+      res.status(200).json({});
+    });
+  }
+
+  // Bearer token middleware for UCP routes (when OAuth is enabled)
+  if (oauthEnabled && oauthManager) {
+    app.use('/ucp/v1', (req: Request, res: Response, next: NextFunction) => {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        res.status(401).json({ error: 'missing_token', message: 'Authorization: Bearer <token> required' });
+        return;
+      }
+
+      const token = authHeader.slice(7);
+      const validToken = oauthManager.validateAccessToken(token);
+      if (!validToken) {
+        res.status(401).json({ error: 'invalid_token', message: 'Token is expired, revoked, or invalid' });
+        return;
+      }
+
+      // Attach user info to request
+      (req as any).oauthUserId = validToken.user_id;
+      (req as any).oauthClientId = validToken.client_id;
+      (req as any).oauthScope = validToken.scope;
+      next();
+    });
+  }
 
   // UCP Discovery endpoint
   app.get('/.well-known/ucp', (_req: Request, res: Response) => {

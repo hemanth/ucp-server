@@ -85,9 +85,44 @@ def _init_schema(conn: sqlite3.Connection):
             updated_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS oauth_clients (
+            client_id TEXT PRIMARY KEY,
+            client_secret_hash TEXT NOT NULL,
+            name TEXT NOT NULL,
+            redirect_uris_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS oauth_codes (
+            code TEXT PRIMARY KEY,
+            client_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            redirect_uri TEXT NOT NULL,
+            code_challenge TEXT,
+            code_challenge_method TEXT,
+            expires_at INTEGER NOT NULL,
+            used INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (client_id) REFERENCES oauth_clients(client_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS oauth_tokens (
+            token TEXT PRIMARY KEY,
+            token_type TEXT NOT NULL,
+            client_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            parent_token TEXT,
+            expires_at INTEGER NOT NULL,
+            revoked INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (client_id) REFERENCES oauth_clients(client_id)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_line_items_checkout ON line_items(checkout_id);
         CREATE INDEX IF NOT EXISTS idx_orders_checkout ON orders(checkout_id);
         CREATE INDEX IF NOT EXISTS idx_checkouts_status ON checkouts(status);
+        CREATE INDEX IF NOT EXISTS idx_oauth_tokens_client ON oauth_tokens(client_id);
+        CREATE INDEX IF NOT EXISTS idx_oauth_codes_client ON oauth_codes(client_id);
     """)
     conn.commit()
 

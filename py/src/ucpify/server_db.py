@@ -119,6 +119,7 @@ class UCPServerDB:
                     "dev.ucp.shopping.checkout": [{"version": UCP_VERSION, "spec": "https://ucp.dev/specification/checkout", "schema": "https://ucp.dev/schemas/shopping/checkout.json"}],
                     "dev.ucp.shopping.fulfillment": [{"version": UCP_VERSION, "spec": "https://ucp.dev/specification/fulfillment", "schema": "https://ucp.dev/schemas/shopping/fulfillment.json", "extends": "dev.ucp.shopping.checkout"}],
                     "dev.ucp.shopping.order": [{"version": UCP_VERSION, "spec": "https://ucp.dev/specification/order", "schema": "https://ucp.dev/schemas/shopping/order.json"}],
+                    **({"dev.ucp.identity_linking": [{"version": UCP_VERSION, "spec": "https://ucp.dev/specification/identity-linking"}]} if self.config.oauth else {}),
                 },
                 "payment_handlers": self._build_payment_handlers(),
             }
